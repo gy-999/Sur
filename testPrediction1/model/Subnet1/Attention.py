@@ -45,22 +45,22 @@ class Attention(nn.Module):
 		self.data_modalities = modalities
 		self.device = device
 
-		# 模态内注意力相关层
+
 		self.pipeline = nn.ModuleDict()
 		for modality in self.data_modalities:
 			self.pipeline[modality] = nn.Linear(self.m_length, self.m_length, bias=False).to(self.device)
 
-		# 跨模态注意力
+
 		self.cross_modality_extractor = CrossModalAttention(m_length, modalities, device, dropout_rate)
 
-		# 门控融合层
-		self.gate_layer = nn.Linear(2 * m_length, m_length)  # 输出m_length维度的门控值，用于每个特征
+
+		self.gate_layer = nn.Linear(2 * m_length, m_length)
 
 
 		self.dropout = nn.Dropout(dropout_rate)
 
 	def forward(self, multimodal_input):
-		# 模态内注意力
+
 		attention_weight = []
 		multimodal_features = []
 		for modality in self.data_modalities:
@@ -70,19 +70,19 @@ class Attention(nn.Module):
 		attention_matrix = F.softmax(torch.stack(attention_weight), dim=0)
 		f_intra = torch.sum(torch.stack(multimodal_features) * attention_matrix, dim=0)
 
-		# 跨模态注意力
+
 		f_cross = self.cross_modality_extractor(multimodal_input)
 
-		# 门控融合
+
 		gate_input = torch.cat([f_intra, f_cross], dim=-1)
-		gate = torch.sigmoid(self.gate_layer(gate_input))  # 输出在0-1之间，维度为m_length
+		gate = torch.sigmoid(self.gate_layer(gate_input))
 		f_fused = gate * f_intra + (1 - gate) * f_cross
 
-		# # 降维
+
 		# fused = self.projection(f_fused)
 		fused = self.dropout(f_fused)
 
-		# 处理缺失模态的缩放（原代码中的步骤）
+
 		stacked_features = torch.stack(multimodal_features)
 		fused = self._scale_for_missing_modalities(stacked_features, fused)
 

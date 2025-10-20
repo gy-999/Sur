@@ -7,17 +7,11 @@ from torch.utils.data.sampler import SubsetRandomSampler
 from torch.utils.data import DataLoader
 
 
-# The dictionary of the input data path
-# DATA_PATH = {'clinical': r'D:\UPENN\tumor_segmentation\clinical3.csv',
-# 			 'Edema'  :      r'D:\UPENN\tumor_segmentation\Edema2',
-# 			 'Necrosis':        r'D:\UPENN\tumor_segmentation\Necrosis2',
-# 			 'Tumor':        r'D:\UPENN\tumor_segmentation\Tumor2'
-# 			 }
 DATA_PATH = {
-'clinical': r'D:\data\proprcessing\clinical1.csv',
-'Edema': r'D:\data\proprcessing\ED2',
-'Necrosis': r'D:\data\proprcessing\NET2',
-'Tumor': r'D:\data\proprcessing\ET2'
+'clinical': 'clinical1.csv',
+'Edema': 'ED2',
+'Necrosis': 'NET2',
+'Tumor': '\ET2'
 }
 def setup_seed(seed):
     torch.manual_seed(seed)
@@ -64,12 +58,12 @@ def compose_run_tag(model, lr, dataloaders, log_dir, suffix=''):
             return string + sep + addition
 
     data = None
-    # 检查模型是否有 data_modalities 属性
+
     if hasattr(model, 'data_modalities'):
         for modality in model.data_modalities:
             data = add_string(data, modality)
     else:
-        # 如果没有该属性，使用默认值
+
         data = 'clinical'
 
     run_tag = f'{data}_lr{lr}'

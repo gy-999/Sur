@@ -6,37 +6,37 @@ import numpy as np
 
 def compute_metrics(output, target, n_classes, eps=1e-5):
     """
-    计算多类别分割的多种评估指标
+    Compute multiple evaluation metrics for multi-class segmentation.
     Returns: dice, accuracy, jaccard, specificity, sensitivity for each class
     """
-    # 获取预测结果
+    # Obtain predictions
     pred = torch.argmax(output, dim=1)  # (B, H, W)
     target = target.squeeze(-1)  # (B, H, W)
 
-    # 转换为 one-hot 编码
+    # Convert to one-hot encoding
     pred_onehot = F.one_hot(pred, n_classes).permute(0, 3, 1, 2).float()  # (B, C, H, W)
     target_onehot = F.one_hot(target, n_classes).permute(0, 3, 1, 2).float()  # (B, C, H, W)
 
-    # 初始化存储每个类别的指标
+    # Initialize storage for per-class metrics
     dice_scores = []
     accuracy_scores = []
     jaccard_scores = []
     specificity_scores = []
     sensitivity_scores = []
 
-    # 计算每个类别的指标（排除背景类 class 0）
-    for class_idx in range(1, n_classes):  # 从1开始，跳过背景
-        # 当前类别的预测和真实值
+    # Compute metrics for each class (exclude background class 0)
+    for class_idx in range(1, n_classes):  # start from 1 to skip background
+        # Predictions and ground truth for the current class
         pred_class = pred_onehot[:, class_idx, :, :]
         target_class = target_onehot[:, class_idx, :, :]
 
-        # 计算 TP, TN, FP, FN
+        # Compute TP, TN, FP, FN
         tp = torch.sum(pred_class * target_class, dim=(1, 2))
         tn = torch.sum((1 - pred_class) * (1 - target_class), dim=(1, 2))
         fp = torch.sum(pred_class * (1 - target_class), dim=(1, 2))
         fn = torch.sum((1 - pred_class) * target_class, dim=(1, 2))
 
-        # Dice 系数
+        # Dice coefficient
         dice = (2. * tp + eps) / (2. * tp + fp + fn + eps)
         dice_scores.append(dice.mean().item())
 
@@ -67,15 +67,15 @@ def compute_metrics(output, target, n_classes, eps=1e-5):
 
 def compute_gflops(model, input_shape=(1, 4, 128, 128)):
     """
-    计算模型的 GFLOPs
+    Compute model GFLOPs.
     """
     device = next(model.parameters()).device
     dummy_input = torch.randn(input_shape).to(device)
 
     try:
-        # 对于有多个输出的模型（如EfficientUNet）
+        # For models with multiple outputs (e.g., EfficientUNet)
         if hasattr(model, 'return_attentions'):
-            # 创建包装器只返回主要输出
+            # Create a wrapper that only returns the main output
             class ModelWrapper(torch.nn.Module):
                 def __init__(self, model):
                     super().__init__()
@@ -89,8 +89,8 @@ def compute_gflops(model, input_shape=(1, 4, 128, 128)):
         else:
             macs, params = profile(model, inputs=(dummy_input,), verbose=False)
 
-        gflops = macs / 1e9  # 转换为 GFLOPs
+        gflops = macs / 1e9  # convert to GFLOPs
         return gflops
     except Exception as e:
-        print(f"计算 GFLOPs 时出错: {e}")
+        print(f"Error computing GFLOPs: {e}")
         return 0.0

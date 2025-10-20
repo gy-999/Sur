@@ -10,18 +10,18 @@ class TumorFeatureExtractor(nn.Module):
         self.m_length = m_length
         self.device = device
 
-        # 使用现代PyTorch的权重加载方式
+        # Use modern PyTorch weight loading API
         resnet = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
 
-        # 修改第一层卷积以适应单通道输入
+        # Modify the first convolution to accept single-channel input
         self.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
 
-        # 复制预训练权重（对RGB通道取平均）
+        # Copy pretrained weights (average across the RGB channels)
         with torch.no_grad():
             pretrained_weights = resnet.conv1.weight.data
             self.conv1.weight.data = pretrained_weights.mean(dim=1, keepdim=True)
 
-        # 复制ResNet的其他层
+        # Copy other ResNet layers
         self.bn1 = resnet.bn1
         self.relu = resnet.relu
         self.maxpool = resnet.maxpool
@@ -30,7 +30,7 @@ class TumorFeatureExtractor(nn.Module):
         self.layer3 = resnet.layer3
         self.layer4 = resnet.layer4
 
-        # 特征投影层
+        # Feature projection layers
         self.feature_projection = nn.Sequential(
             nn.Linear(512, 256),
             nn.ReLU(inplace=True),
@@ -41,11 +41,11 @@ class TumorFeatureExtractor(nn.Module):
             nn.Linear(128, m_length)
         )
 
-        # 初始化权重
+        # Initialize custom weights
         self._initialize_weights()
 
     def _initialize_weights(self):
-        """初始化自定义层的权重"""
+        """Initialize weights of custom layers."""
         for m in self.feature_projection.modules():
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -53,15 +53,15 @@ class TumorFeatureExtractor(nn.Module):
                     nn.init.constant_(m.bias, 0)
 
     def extract_nonzero_features(self, x):
-        """提取非零像素区域的特征"""
+        """Extract features from regions that are non-zero."""
         batch_size = x.shape[0]
 
-        # 创建mask并检查是否有非零像素
+        # Create a mask and check if there are any non-zero pixels
         mask = (x != 0).float()
         if torch.sum(mask) == 0:
             return torch.zeros(batch_size, self.m_length, device=x.device)
 
-        # 使用完整的ResNet特征提取流程
+        # Use the full ResNet feature extraction pipeline
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -72,21 +72,20 @@ class TumorFeatureExtractor(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        # 全局平均池化
+        # Global average pooling
         x = F.adaptive_avg_pool2d(x, (1, 1))
         x = x.view(x.size(0), -1)
 
-        # 特征投影
+        # Feature projection
         features = self.feature_projection(x)
 
         return features
 
     def forward(self, x):
-        # 处理输入维度 [B, 240, 240, 1] -> [B, 1, 240, 240]
         if len(x.shape) == 4 and x.shape[-1] == 1:
             x = x.permute(0, 3, 1, 2).contiguous()
 
-        # 确保输入在正确设备上
+        # Ensure input is on the correct device
         if self.device is not None:
             x = x.to(self.device)
 
@@ -94,13 +93,13 @@ class TumorFeatureExtractor(nn.Module):
 
 
 class NonZeroFeatureExtractor(nn.Module):
-    """专门用于提取非零像素区域特征的模块"""
+    """Module specifically for extracting features from non-zero pixel regions."""
 
     def __init__(self, m_length):
         super(NonZeroFeatureExtractor, self).__init__()
         self.m_length = m_length
 
-        # 局部特征提取网络
+        # Local feature extraction network
         self.local_feature_net = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -113,10 +112,10 @@ class NonZeroFeatureExtractor(nn.Module):
             nn.AdaptiveAvgPool2d((1, 1))
         )
 
-        # 形状特征提取器
+        # Shape feature extractor
         self.shape_feature_extractor = ShapeFeatureExtractor(64)
 
-        # 特征融合层
+        # Feature fusion layers
         self.feature_fusion = nn.Sequential(
             nn.Linear(128 + 64, 256),
             nn.ReLU(inplace=True),
@@ -127,14 +126,14 @@ class NonZeroFeatureExtractor(nn.Module):
     def forward(self, x, mask):
         batch_size = x.shape[0]
 
-        # 提取局部纹理特征
+        # Extract local texture features
         local_features = self.local_feature_net(x)
         local_features = local_features.view(batch_size, -1)
 
-        # 提取形状特征
+        # Extract shape features
         shape_features = self.shape_feature_extractor(mask)
 
-        # 融合特征
+        # Fuse features
         combined_features = torch.cat([local_features, shape_features], dim=1)
         final_features = self.feature_fusion(combined_features)
 
@@ -142,13 +141,13 @@ class NonZeroFeatureExtractor(nn.Module):
 
 
 class ShapeFeatureExtractor(nn.Module):
-    """提取肿瘤形状特征的模块"""
+    """Module to extract tumor shape features."""
 
     def __init__(self, output_dim):
         super(ShapeFeatureExtractor, self).__init__()
         self.output_dim = output_dim
 
-        # 形状特征提取网络
+        # Shape feature extraction network
         self.shape_net = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
@@ -161,7 +160,7 @@ class ShapeFeatureExtractor(nn.Module):
             nn.AdaptiveAvgPool2d((1, 1))
         )
 
-        # 全局形状统计
+        # Global shape statistics
         self.global_stats = GlobalShapeStatistics(16)
 
         self.feature_projection = nn.Sequential(
@@ -173,20 +172,20 @@ class ShapeFeatureExtractor(nn.Module):
     def forward(self, mask):
         batch_size = mask.shape[0]
 
-        # 确保mask是2D的 [B, 1, H, W]
+
         if len(mask.shape) == 4 and mask.shape[1] == 1:
             mask_2d = mask
         else:
             mask_2d = mask.unsqueeze(1)
 
-        # 提取卷积特征
+        # Extract convolutional features
         conv_features = self.shape_net(mask_2d)
         conv_features = conv_features.view(batch_size, -1)
 
-        # 提取全局统计特征
+        # Extract global statistical features
         global_features = self.global_stats(mask_2d)
 
-        # 合并特征
+        # Combine features
         combined = torch.cat([conv_features, global_features], dim=1)
         output = self.feature_projection(combined)
 
@@ -194,25 +193,25 @@ class ShapeFeatureExtractor(nn.Module):
 
 
 class GlobalShapeStatistics(nn.Module):
-    """计算肿瘤的全局形状统计特征 - 优化版本"""
+    """Compute global shape statistical features for the tumor - optimized version."""
 
     def __init__(self, output_dim):
         super(GlobalShapeStatistics, self).__init__()
         self.output_dim = output_dim
-        self.projection = nn.Linear(6, output_dim)  # 减少特征维度
+        self.projection = nn.Linear(6, output_dim)  # reduced feature dimensionality
 
     def forward(self, mask):
         batch_size = mask.shape[0]
         features = []
 
         for i in range(batch_size):
-            single_mask = mask[i, 0]  # [H, W]
+            single_mask = mask[i, 0]
             nonzero_coords = torch.nonzero(single_mask)
 
             if len(nonzero_coords) == 0:
                 stats = torch.zeros(6, device=mask.device)
             else:
-                # 计算基本形状特征
+                # Compute basic shape statistics
                 coords_float = nonzero_coords.float()
                 center = torch.mean(coords_float, dim=0)
                 max_coords = torch.max(coords_float, dim=0)[0]
@@ -222,15 +221,15 @@ class GlobalShapeStatistics(nn.Module):
                 width = max_coords[1] - min_coords[1]
                 area = len(nonzero_coords)
 
-                # 归一化特征
+                # Normalized features
                 h, w = single_mask.shape
                 stats = torch.stack([
-                    center[0] / h,  # 归一化y中心
-                    center[1] / w,  # 归一化x中心
-                    height / h,  # 归一化高度
-                    width / w,  # 归一化宽度
-                    area / (h * w),  # 面积比例
-                    (height * width) / (h * w)  # 边界框比例
+                    center[0] / h,  # normalized y-center
+                    center[1] / w,  # normalized x-center
+                    height / h,     # normalized height
+                    width / w,      # normalized width
+                    area / (h * w), # area ratio
+                    (height * width) / (h * w)  # bounding-box ratio
                 ])
 
             features.append(stats)
@@ -239,27 +238,26 @@ class GlobalShapeStatistics(nn.Module):
         return self.projection(features)
 
 
-# 具体的三个胶质瘤模态网络
+# Specific three glioma-modality networks
 class TumorCoreNet(TumorFeatureExtractor):
-    """肿瘤核心区域特征提取网络"""
+    """Tumor core-region feature extraction network."""
 
     def __init__(self, m_length=32, device=None):
         super(TumorCoreNet, self).__init__(m_length, device)
-        print("初始化 TumorCoreNet")
+        print("Initializing TumorCoreNet")
 
 
 class EnhancingTumorNet(TumorFeatureExtractor):
-    """增强肿瘤区域特征提取网络"""
+    """Enhancing tumor-region feature extraction network."""
 
     def __init__(self, m_length=32, device=None):
         super(EnhancingTumorNet, self).__init__(m_length, device)
-        print("初始化 EnhancingTumorNet")
+        print("Initializing EnhancingTumorNet")
 
 
 class WholeTumorNet(TumorFeatureExtractor):
-    """全肿瘤区域特征提取网络"""
+    """Whole-tumor region feature extraction network."""
 
     def __init__(self, m_length=32, device=None):
         super(WholeTumorNet, self).__init__(m_length, device)
-        print("初始化 WholeTumorNet")
-
+        print("Initializing WholeTumorNet")

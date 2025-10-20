@@ -14,18 +14,18 @@ import pandas as pd
 import json
 from datetime import datetime
 from seg.config import *
+import torch
 
 
-
-# 获取指定模型
+# Get the specified model
 def get_model(model_name, in_channels=4, out_channels=4):
     if model_name not in MODEL_MAP:
-        raise ValueError(f"未知模型: {model_name}. 可用模型: {list(MODEL_MAP.keys())}")
+        raise ValueError(f"Unknown model: {model_name}. Available models: {list(MODEL_MAP.keys())}")
     return MODEL_MAP[model_name](in_channels, out_channels)
 
 
 def load_model_weights(model, checkpoint_path):
-    """安全加载模型权重，处理不匹配的键"""
+    """Safely load model weights and handle mismatched keys"""
     checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
 
     if 'model_state_dict' in checkpoint:
@@ -33,16 +33,16 @@ def load_model_weights(model, checkpoint_path):
     else:
         state_dict = checkpoint
 
-    # 过滤掉不需要的键
+    # Filter out unnecessary keys
     filtered_state_dict = {}
     for key, value in state_dict.items():
         if 'total_ops' not in key and 'total_params' not in key:
             filtered_state_dict[key] = value
 
-    # 获取当前模型的状态字典
+    # Get current model state dict
     model_state_dict = model.state_dict()
 
-    # 检查键的匹配情况
+    # Check key matching
     missing_keys = []
     unexpected_keys = []
 
@@ -55,19 +55,19 @@ def load_model_weights(model, checkpoint_path):
             missing_keys.append(key)
 
     if missing_keys:
-        print(f"警告: 缺少以下键: {missing_keys}")
+        print(f"Warning: Missing the following keys: {missing_keys}")
     if unexpected_keys:
-        print(f"警告: 意外的键: {unexpected_keys}")
+        print(f"Warning: Unexpected keys: {unexpected_keys}")
 
-    # 加载权重
+    # Load weights (non-strict to allow partial loading)
     model.load_state_dict(filtered_state_dict, strict=False)
     return checkpoint
 
 
 def save_results_to_csv(results, csv_file='result/model_results.csv'):
-    """将简化结果保存到CSV文件"""
+    """Save simplified results to a CSV file"""
     try:
-        # 准备数据 - 只包含平均值
+        # Prepare data - only include averages
         data = {
             'model': results['model'],
             'params': results['params'],
@@ -81,43 +81,43 @@ def save_results_to_csv(results, csv_file='result/model_results.csv'):
             'timestamp': results.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         }
 
-        # 如果文件存在，读取并追加
+        # If the file exists, read and append/update
         if os.path.exists(csv_file):
             df = pd.read_csv(csv_file)
-            # 检查是否已有相同模型的记录
+            # Check if there is already a record for the same model
             mask = df['model'] == results['model']
             if mask.any():
-                # 更新现有记录
+                # Update existing record
                 for key, value in data.items():
                     df.loc[mask, key] = value
             else:
-                # 添加新记录
+                # Add new record
                 df = pd.concat([df, pd.DataFrame([data])], ignore_index=True)
         else:
-            # 创建新文件
+            # Create new file
             df = pd.DataFrame([data])
 
-        # 保存到CSV
+        # Save to CSV
         df.to_csv(csv_file, index=False)
-        print(f"简化结果已保存到: {csv_file}")
+        print(f"Simplified results saved to: {csv_file}")
 
     except Exception as e:
-        print(f"保存结果到CSV时出错: {e}")
+        print(f"Error saving results to CSV: {e}")
 
 
 def load_previous_results(csv_file='model_results.csv'):
-    """加载之前的结果"""
+    """Load previous results"""
     if os.path.exists(csv_file):
         try:
             df = pd.read_csv(csv_file)
             return df
         except Exception as e:
-            print(f"加载历史结果时出错: {e}")
+            print(f"Error loading previous results: {e}")
     return None
 
 
 def save_detailed_results(results, output_dir='results'):
-    """保存详细结果到JSON文件"""
+    """Save detailed results to a JSON file"""
     os.makedirs(output_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -125,7 +125,7 @@ def save_detailed_results(results, output_dir='results'):
     filepath = os.path.join(output_dir, filename)
 
     try:
-        # 转换numpy数组为列表以便JSON序列化
+        # Convert numpy arrays to lists for JSON serialization
         serializable_results = {}
         for key, value in results.items():
             if hasattr(value, 'tolist'):
@@ -136,10 +136,13 @@ def save_detailed_results(results, output_dir='results'):
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(serializable_results, f, indent=2, ensure_ascii=False)
 
-        print(f"详细结果已保存到: {filepath}")
+        print(f"Detailed results saved to: {filepath}")
     except Exception as e:
-        print(f"保存详细结果时出错: {e}")
+        print(f"Error saving detailed results: {e}")
+
+
 def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epochs=0, start_warmup_value=0):
+    """Create a cosine learning rate scheduler with optional warmup (per-step values)."""
     scheduler = []
     total_steps = epochs * niter_per_ep
     warmup_steps = warmup_epochs * niter_per_ep
@@ -155,16 +158,15 @@ def cosine_scheduler(base_value, final_value, epochs, niter_per_ep, warmup_epoch
     return np.array(scheduler)
 
 
-# 更新预处理流程
+# Update preprocessing pipeline
 def preprocess_data():
-
     mask_dir = os.path.join(DATA_DIR, 'mask')
     all_files = [f for f in os.listdir(mask_dir) if f.endswith('.nii')]
 
     train_files, test_files = train_test_split(all_files, test_size=0.3, random_state=42)
     val_files, test_files = train_test_split(test_files, test_size=0.5, random_state=42)
 
-    # 定义2D预处理流程
+    # Define 2D preprocessing pipeline
     patch_size = (180, 180)
     train_transform = transforms.Compose([
         RandomRotFlip2D(),
@@ -172,26 +174,25 @@ def preprocess_data():
         GaussianNoise(p=0.1),
         ContrastAugmentationTransform(p_per_sample=0.5),
         BrightnessTransform(mu=0.0, sigma=0.1, p_per_sample=0.5),
-        EnsureContiguous(),  # 添加连续性确保
+        EnsureContiguous(),  # Ensure memory contiguity
         ToTensorDict()
     ])
 
     val_transform = transforms.Compose([
         CenterCrop2D(patch_size),
-        EnsureContiguous(),  # 添加连续性确保
+        EnsureContiguous(),  # Ensure memory contiguity
         ToTensorDict()
     ])
 
     test_transform = transforms.Compose([
         CenterCrop2D(patch_size),
-        EnsureContiguous(),  # 添加连续性确保
+        EnsureContiguous(),  # Ensure memory contiguity
         ToTensorDict()
     ])
 
     train_dataset = BrainTumorDataset(train_files, transform=train_transform)
     val_dataset = BrainTumorDataset(val_files, transform=val_transform)
     test_dataset = BrainTumorDataset(test_files, transform=test_transform)
-
 
     train_loader = DataLoader(
         train_dataset,

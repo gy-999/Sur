@@ -19,7 +19,7 @@ class BrainTumorDataset(Dataset):
     def __getitem__(self, idx):
         base_name = self.file_list[idx]
 
-        # 加载多模态图像
+
         images = []
         for mod in MODALITIES:
             img_path = os.path.join(DATA_DIR, mod, base_name)
@@ -29,8 +29,7 @@ class BrainTumorDataset(Dataset):
             images.append(img)
 
 
-        # 创建字典样本
-        image_stack = np.stack(images, axis=0)  # (4, H, W)
+        image_stack = np.stack(images, axis=0)
         mask_path = os.path.join(DATA_DIR, 'mask', base_name)
         mask = nib.load(mask_path).get_fdata().astype(np.uint8)
 
@@ -42,10 +41,8 @@ class BrainTumorDataset(Dataset):
 
         sample = {'image': image_stack, 'label': remapped_mask}
 
-        # 应用变换
+
         if self.transform:
             sample = self.transform(sample)
-
-        # 返回图像和标签张量
         return sample['image'], sample['label'], base_name
 

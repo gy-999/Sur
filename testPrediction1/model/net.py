@@ -2,17 +2,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from testPrediction1.model.Subnet1.clinical_enbedding import *
-# from testPrediction1.model.Subnet1.ed_featurenet import Ed_FeatureNet
-# from testPrediction1.model.Subnet1.Necrosisi_feature_net import Necrosis_FeatureNet
 from testPrediction1.model.Subnet1.Tumor_feature_net import *
 from testPrediction1.model.Subnet1.Attention import Attention
 from testPrediction1.model.Subnet1.fixedAttention import FixedAttention
 
 
 class MultimodalNet(nn.Module):
-    """在单模态情况下完全使用DeepSurv结构的多模态网络"""
-
     def __init__(self, modalities, m_length, fusion_method='attention', device=None, nhead=3,
                  num_categories_list=[2, 3, 4, 4, 4, 9, 3, 2], dropout_rate=0.3,
                  clinical_hidden_dims=[64, 32]):
@@ -21,24 +18,24 @@ class MultimodalNet(nn.Module):
         self.m_length = m_length
         self.device = device
 
-        # 修复：检查 num_categories_list 是否为整数，如果是则转换为列表
+        # Fix: if num_categories_list is an int, convert to a list
         if isinstance(num_categories_list, int):
-            print(f"MultimodalNet 警告: num_categories_list 应该是列表，但收到整数 {num_categories_list}，将转换为单元素列表")
+            print(f"MultimodalNet WARNING: num_categories_list should be a list but got int {num_categories_list}; converting to single-element list")
             num_categories_list = [num_categories_list]
 
         self.num_categories_list = num_categories_list
 
-        # 关键：严格区分单模态和多模态
+        # Important: strictly distinguish single-modality vs multi-modality
         self.is_multimodal = len(modalities) > 1
 
-        print(f"MultimodalNet - 模态: {modalities}, 是否多模态: {self.is_multimodal}")
-        print(f"MultimodalNet - num_categories_list: {num_categories_list}, 长度: {len(num_categories_list)}")
+        print(f"MultimodalNet - modalities: {modalities}, is_multimodal: {self.is_multimodal}")
+        print(f"MultimodalNet - num_categories_list: {num_categories_list}, length: {len(num_categories_list)}")
 
-        # 计算临床数据输入维度 - 现在安全使用 len()
+        # Compute clinical input dimension (safe use of len())
         clinical_input_dim = len(num_categories_list) + 2
-        print(f"MultimodalNet - 临床输入维度: {clinical_input_dim}")
+        print(f"MultimodalNet - clinical input dim: {clinical_input_dim}")
 
-        # 使用DeepSurv结构作为临床特征提取器
+        # Use a DeepSurv style structure as clinical feature extractor
         if 'clinical' in self.data_modalities:
             self.clinical_net = DeepSurvClinicalNet(
                 input_dim=clinical_input_dim,
@@ -48,9 +45,9 @@ class MultimodalNet(nn.Module):
                 device=self.device
             )
 
-        # 图像模态网络
+        # Image modality networks
         self.image_networks = nn.ModuleDict()
-        # 新增的三个胶质瘤模态
+        # Three glioma-related modalities
         if 'Tumor' in self.data_modalities:
             self.image_networks['Tumor'] = TumorCoreNet(m_length=self.m_length, device=self.device)
         if 'Edema' in self.data_modalities:
@@ -58,19 +55,18 @@ class MultimodalNet(nn.Module):
         if 'Necrosis' in self.data_modalities:
             self.image_networks['Necrosis'] = WholeTumorNet(m_length=self.m_length, device=self.device)
 
-        # 只有在真正多模态时才使用融合
+        # Use fusion only when truly multimodal
         if self.is_multimodal:
             if fusion_method == 'attention':
                 self.fusion = Attention(m_length=self.m_length, modalities=self.data_modalities, device=self.device)
             else:
                 self.fusion = FixedAttention(m_length=self.m_length, modalities=self.data_modalities,
                                              device=self.device)
-
             fusion_output_dim = m_length
         else:
             fusion_output_dim = m_length
 
-        # 输出层
+        # Output layers
         self.dropout = nn.Dropout(dropout_rate)
         self.hazard_layer1 = nn.Linear(fusion_output_dim, 1)
         self.label_layer1 = nn.Linear(fusion_output_dim, 2)
@@ -78,32 +74,32 @@ class MultimodalNet(nn.Module):
     def forward(self, x):
         representation = {}
 
-        # 临床数据
+        # Clinical data
         if 'clinical' in self.data_modalities:
             representation['clinical'] = self.clinical_net(
                 x['clinical_categorical'],
                 x['clinical_continuous']
             )
 
-        # 图像数据
+        # Image data
         for modality in self.image_networks:
             if modality in x:
                 representation[modality] = self.image_networks[modality](x[modality])
             else:
-                print(f"警告: 输入数据中缺少模态 {modality}")
+                print(f"WARNING: modality {modality} missing from input data")
 
-        # 特征融合
+        # Feature fusion
         if self.is_multimodal:
             x_final = self.fusion(representation)
         else:
-            # 修改：支持任意单模态，而不仅仅是clinical
+            # Support any single modality, not only clinical
             if len(representation) == 0:
-                raise ValueError("没有可用的模态特征")
+                raise ValueError("No available modality features")
 
-            # 获取第一个可用的模态特征
+            # Pick the first available modality feature
             available_modalities = list(representation.keys())
             if len(available_modalities) > 1:
-                print(f"警告: 单模态模式下找到多个模态特征: {available_modalities}, 使用第一个: {available_modalities[0]}")
+                print(f"WARNING: Found multiple modality features in single-modality mode: {available_modalities}; using first: {available_modalities[0]}")
 
             x_final = representation[available_modalities[0]]
 
@@ -113,17 +109,17 @@ class MultimodalNet(nn.Module):
 
         return {'hazard': hazard, 'score': score}, representation
 
-class DeepSurvNet(nn.Module):
-    """恢复原来的DeepSurv结构"""
 
+class DeepSurvNet(nn.Module):
+    """Restore original DeepSurv structure"""
     def __init__(self, input_dim, hidden_dims=[64, 32], dropout_rate=0.3, device=None):
         super(DeepSurvNet, self).__init__()
         self.device = device
         self.input_dim = input_dim
 
-        print(f"DeepSurvNet - 输入维度: {input_dim}, 隐藏层: {hidden_dims}")
+        print(f"DeepSurvNet - input dim: {input_dim}, hidden_dims: {hidden_dims}")
 
-        # 恢复原来的深层网络结构
+        # Rebuild deep network
         layers = []
         prev_dim = input_dim
         for hidden_dim in hidden_dims:
@@ -132,11 +128,11 @@ class DeepSurvNet(nn.Module):
             layers.append(nn.Dropout(dropout_rate))
             prev_dim = hidden_dim
 
-        # 输出风险分数
+        # Output risk score
         layers.append(nn.Linear(prev_dim, 1))
         self.network = nn.Sequential(*layers)
 
-        # 为了与您的代码兼容
+        # For compatibility with your code
         self.hazard_layer1 = nn.Identity()
         self.label_layer1 = nn.Linear(1, 2)
 
@@ -144,17 +140,17 @@ class DeepSurvNet(nn.Module):
             self.to(device)
 
     def forward(self, x):
-        # 处理临床数据
+        # Process clinical inputs
         clinical_cat = x['clinical_categorical'].float()
         clinical_cont = x['clinical_continuous'].float()
 
-        # 直接拼接临床数据，不进行特殊处理
+        # Concatenate clinical data
         clinical_data = torch.cat([clinical_cat, clinical_cont], dim=1)
 
-        # 检查输入维度
+        # Check input dimension
         if clinical_data.shape[1] != self.input_dim:
-            print(f"警告: 输入维度不匹配。期望: {self.input_dim}, 实际: {clinical_data.shape[1]}")
-            # 自动调整维度
+            print(f"WARNING: input dimension mismatch. expected: {self.input_dim}, got: {clinical_data.shape[1]}")
+            # Auto-adjust dimension
             if clinical_data.shape[1] < self.input_dim:
                 padding = torch.zeros(clinical_data.shape[0], self.input_dim - clinical_data.shape[1],
                                       device=clinical_data.device)
@@ -162,23 +158,24 @@ class DeepSurvNet(nn.Module):
             else:
                 clinical_data = clinical_data[:, :self.input_dim]
 
-        # 通过深度网络
+        # Forward through deep network
         hazard = self.network(clinical_data)
 
-        # 为了与您的代码兼容
+        # For compatibility
         score = F.log_softmax(self.label_layer1(hazard), dim=1)
 
         return {'hazard': hazard, 'score': score}, {'clinical': hazard}
 
+
 class CoxTimeNet(nn.Module):
-    """CoxTime 模型 - 修正维度问题"""
+    """CoxTime model — fix dimension issues"""
     def __init__(self, input_dim, time_bins=10, hidden_dims=[64, 32], dropout_rate=0.3, device=None):
         super(CoxTimeNet, self).__init__()
         self.device = device
         self.time_bins = time_bins
         self.input_dim = input_dim
 
-        # 构建网络层
+        # Build layers
         layers = []
         prev_dim = input_dim
         for hidden_dim in hidden_dims:
@@ -187,11 +184,11 @@ class CoxTimeNet(nn.Module):
             layers.append(nn.Dropout(dropout_rate))
             prev_dim = hidden_dim
 
-        # 输出层 - 每个时间bin的风险
+        # Output per-time-bin hazards
         layers.append(nn.Linear(prev_dim, time_bins))
         self.network = nn.Sequential(*layers)
 
-        # 为了与您的代码兼容
+        # For compatibility
         self.hazard_layer1 = nn.Linear(time_bins, 1)
         self.label_layer1 = nn.Linear(time_bins, 2)
 
@@ -199,16 +196,13 @@ class CoxTimeNet(nn.Module):
             self.to(device)
 
     def forward(self, x):
-        # 处理临床数据
         clinical_cat = x['clinical_categorical'].float()
         clinical_cont = x['clinical_continuous'].float()
 
-        # 拼接临床数据
         clinical_data = torch.cat([clinical_cat, clinical_cont], dim=1)
 
-        # 检查输入维度
         if clinical_data.shape[1] != self.input_dim:
-            print(f"警告: 输入维度不匹配。期望: {self.input_dim}, 实际: {clinical_data.shape[1]}")
+            print(f"WARNING: input dimension mismatch. expected: {self.input_dim}, got: {clinical_data.shape[1]}")
             if clinical_data.shape[1] < self.input_dim:
                 padding = torch.zeros(clinical_data.shape[0], self.input_dim - clinical_data.shape[1],
                                     device=clinical_data.device)
@@ -216,27 +210,27 @@ class CoxTimeNet(nn.Module):
             else:
                 clinical_data = clinical_data[:, :self.input_dim]
 
-        # 通过深度网络 - 输出每个时间bin的风险
+        # Per-time-bin hazards
         time_hazards = self.network(clinical_data)
 
-        # 聚合时间风险为单一风险分数
+        # Aggregate time hazards to single risk score
         hazard = self.hazard_layer1(time_hazards)
 
-        # 为了与您的代码兼容
+        # For compatibility
         score = F.log_softmax(self.label_layer1(time_hazards), dim=1)
 
         return {'hazard': hazard, 'score': score}, {'clinical': time_hazards}
 
 
 class NMTLRNet(nn.Module):
-    """N-MTLR 模型 - 修正维度问题"""
+    """N-MTLR model — fix dimension issues"""
     def __init__(self, input_dim, time_bins=10, hidden_dims=[64, 32], dropout_rate=0.3, device=None):
         super(NMTLRNet, self).__init__()
         self.device = device
         self.time_bins = time_bins
         self.input_dim = input_dim
 
-        # 构建网络层
+        # Build layers
         layers = []
         prev_dim = input_dim
         for hidden_dim in hidden_dims:
@@ -245,11 +239,11 @@ class NMTLRNet(nn.Module):
             layers.append(nn.Dropout(dropout_rate))
             prev_dim = hidden_dim
 
-        # 输出层 - 每个时间bin的生存概率
+        # Output logits for each time bin
         layers.append(nn.Linear(prev_dim, time_bins))
         self.network = nn.Sequential(*layers)
 
-        # 为了与您的代码兼容
+        # For compatibility
         self.hazard_layer1 = nn.Linear(time_bins, 1)
         self.label_layer1 = nn.Linear(time_bins, 2)
 
@@ -257,16 +251,13 @@ class NMTLRNet(nn.Module):
             self.to(device)
 
     def forward(self, x):
-        # 处理临床数据
         clinical_cat = x['clinical_categorical'].float()
         clinical_cont = x['clinical_continuous'].float()
 
-        # 拼接临床数据
         clinical_data = torch.cat([clinical_cat, clinical_cont], dim=1)
 
-        # 检查输入维度
         if clinical_data.shape[1] != self.input_dim:
-            print(f"警告: 输入维度不匹配。期望: {self.input_dim}, 实际: {clinical_data.shape[1]}")
+            print(f"WARNING: input dimension mismatch. expected: {self.input_dim}, got: {clinical_data.shape[1]}")
             if clinical_data.shape[1] < self.input_dim:
                 padding = torch.zeros(clinical_data.shape[0], self.input_dim - clinical_data.shape[1],
                                     device=clinical_data.device)
@@ -274,30 +265,28 @@ class NMTLRNet(nn.Module):
             else:
                 clinical_data = clinical_data[:, :self.input_dim]
 
-        # 通过深度网络 - 输出每个时间bin的logits
         logits = self.network(clinical_data)
 
-        # 转换为生存概率
+        # Convert to survival probabilities
         survival_probs = torch.sigmoid(logits)
 
-        # 计算风险分数 (生存概率越低，风险越高)
+        # Risk score: lower survival prob => higher risk
         hazard = -torch.log(survival_probs + 1e-8).sum(dim=1, keepdim=True)
 
-        # 为了与您的代码兼容
         score = F.log_softmax(self.label_layer1(logits), dim=1)
 
         return {'hazard': hazard, 'score': score}, {'clinical': logits}
 
 
 class DeepCoxMixturesNet(nn.Module):
-    """Deep Cox Mixtures 模型 - 修正维度问题"""
+    """Deep Cox Mixtures model — fix dimension issues"""
     def __init__(self, input_dim, n_components=3, hidden_dims=[64, 32], dropout_rate=0.3, device=None):
         super(DeepCoxMixturesNet, self).__init__()
         self.device = device
         self.n_components = n_components
         self.input_dim = input_dim
 
-        # 共享特征提取层
+        # Shared feature extractor
         shared_layers = []
         prev_dim = input_dim
         for hidden_dim in hidden_dims:
@@ -308,18 +297,18 @@ class DeepCoxMixturesNet(nn.Module):
 
         self.shared_network = nn.Sequential(*shared_layers)
 
-        # 组件权重网络
+        # Component weights network
         self.weights_network = nn.Sequential(
             nn.Linear(prev_dim, n_components),
             nn.Softmax(dim=1)
         )
 
-        # 每个组件的基线风险网络
+        # Baseline hazard for each component
         self.baseline_hazards = nn.ModuleList([
             nn.Linear(prev_dim, 1) for _ in range(n_components)
         ])
 
-        # 为了与您的代码兼容
+        # For compatibility
         self.hazard_layer1 = nn.Identity()
         self.label_layer1 = nn.Linear(1, 2)
 
@@ -327,16 +316,13 @@ class DeepCoxMixturesNet(nn.Module):
             self.to(device)
 
     def forward(self, x):
-        # 处理临床数据
         clinical_cat = x['clinical_categorical'].float()
         clinical_cont = x['clinical_continuous'].float()
 
-        # 拼接临床数据
         clinical_data = torch.cat([clinical_cat, clinical_cont], dim=1)
 
-        # 检查输入维度
         if clinical_data.shape[1] != self.input_dim:
-            print(f"警告: 输入维度不匹配。期望: {self.input_dim}, 实际: {clinical_data.shape[1]}")
+            print(f"WARNING: input dimension mismatch. expected: {self.input_dim}, got: {clinical_data.shape[1]}")
             if clinical_data.shape[1] < self.input_dim:
                 padding = torch.zeros(clinical_data.shape[0], self.input_dim - clinical_data.shape[1],
                                     device=clinical_data.device)
@@ -344,34 +330,28 @@ class DeepCoxMixturesNet(nn.Module):
             else:
                 clinical_data = clinical_data[:, :self.input_dim]
 
-        # 通过共享网络
         shared_features = self.shared_network(clinical_data)
 
-        # 计算组件权重
         weights = self.weights_network(shared_features)
 
-        # 计算每个组件的风险
         component_hazards = []
         for i in range(self.n_components):
             hazard = self.baseline_hazards[i](shared_features)
             component_hazards.append(hazard)
 
-        # 加权平均风险
+        # Weighted average hazard
         hazards_stack = torch.stack(component_hazards, dim=2)  # [batch, 1, n_components]
         weights_expanded = weights.unsqueeze(1)  # [batch, 1, n_components]
         hazard = torch.sum(hazards_stack * weights_expanded, dim=2)  # [batch, 1]
 
-        # 为了与您的代码兼容
         hazard_adapted = self.hazard_layer1(hazard)
         score = F.log_softmax(self.label_layer1(hazard), dim=1)
 
         return {'hazard': hazard_adapted, 'score': score}, {'clinical': shared_features}
 
 
-# 修改 FlexibleNet 类
 class FlexibleNet(nn.Module):
-    """灵活的神经网络，支持多模态和单模态（临床数据）"""
-
+    """Flexible network supporting multimodal and single-modality (clinical) usage"""
     def __init__(self, modalities, m_length, model_type='multimodal',
                  fusion_method='attention', device=None, nhead=3,
                  dropout_rate=0.3, **kwargs):
@@ -384,32 +364,32 @@ class FlexibleNet(nn.Module):
         self.num_categories_list = [2, 3, 4, 4, 4, 9, 3, 2]
 
         if model_type == 'multimodal':
-            # 使用原始的多模态网络
+            # Use original multimodal network
             self.net = MultimodalNet(modalities, m_length, fusion_method, device, nhead,
                            self.num_categories_list, dropout_rate)
         elif model_type == 'deepsurv':
-            # 计算临床数据的输入维度
-            clinical_dim = len(self.num_categories_list) + 2  # 分类变量 + 连续变量
-            print(f"DeepSurv 输入维度: {clinical_dim}")
+            # Compute clinical input dim
+            clinical_dim = len(self.num_categories_list) + 2  # categorical + continuous
+            print(f"DeepSurv input dim: {clinical_dim}")
             self.net = DeepSurvNet(clinical_dim, **kwargs, device=device)
         elif model_type == 'coxtime':
             clinical_dim = len(self.num_categories_list) + 2
-            print(f"CoxTime 输入维度: {clinical_dim}")
+            print(f"CoxTime input dim: {clinical_dim}")
             self.net = CoxTimeNet(clinical_dim, **kwargs, device=device)
         elif model_type == 'nmtlr':
             clinical_dim = len(self.num_categories_list) + 2
-            print(f"N-MTLR 输入维度: {clinical_dim}")
+            print(f"N-MTLR input dim: {clinical_dim}")
             self.net = NMTLRNet(clinical_dim, **kwargs, device=device)
         elif model_type == 'deepcoxmixtures':
             clinical_dim = len(self.num_categories_list) + 2
-            print(f"DeepCoxMixtures 输入维度: {clinical_dim}")
+            print(f"DeepCoxMixtures input dim: {clinical_dim}")
             self.net = DeepCoxMixturesNet(clinical_dim, **kwargs, device=device)
         else:
-            raise ValueError(f"不支持的模型类型: {model_type}")
+            raise ValueError(f"Unsupported model type: {model_type}")
 
     def forward(self, x):
         return self.net(x)
 
 
-# 为了向后兼容，将 Net 指向 FlexibleNet
+# Backwards-compatible alias
 Net = FlexibleNet

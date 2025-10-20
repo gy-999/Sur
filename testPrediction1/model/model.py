@@ -24,24 +24,24 @@ class _BaseModelWithDataLoader:
     def _instantiate_model(self, move2device=True):
         print(f'Instantiate {self.model_type} model...')
 
-        # 根据模型类型选择相应的网络
+        # Choose the appropriate network according to the model type
         if self.model_type == 'multimodal':
             self.model = FlexibleNet(
                 modalities=self.data_modalities,
                 m_length=self.m_length,
-                model_type='multimodal',  # 明确指定为 multimodal
+                model_type='multimodal',  # explicitly specify multimodal
                 fusion_method=self.fusion_method,
                 device=self.device,
                 **self.model_kwargs
             )
         elif self.model_type == 'deepsurv':
-            # 对于单模态模型，确保只使用临床数据
+            # For single-modality models, ensure only clinical data is used
             clinical_modalities = ['clinical']
             self.model = FlexibleNet(
                 modalities=clinical_modalities,
                 m_length=self.m_length,
                 model_type='deepsurv',
-                fusion_method='none',  # 单模态不需要融合
+                fusion_method='none',  # no fusion needed for single modality
                 device=self.device,
                 **self.model_kwargs
             )
@@ -76,7 +76,7 @@ class _BaseModelWithDataLoader:
                 **self.model_kwargs
             )
         else:
-            raise ValueError(f"不支持的模型类型: {self.model_type}")
+            raise ValueError(f"Unsupported model type: {self.model_type}")
 
         if move2device:
             self.model = self.model.to(self.device)
@@ -85,11 +85,11 @@ class _BaseModelWithDataLoader:
 class Model(_BaseModelWithDataLoader):
     def __init__(self, modalities, m_length, dataloaders, model_type='multimodal',
                  fusion_method='attention', trade_off=0.3, mode='total', device=None, **model_kwargs):
-        # 根据模型类型调整模式
+        # Adjust mode based on model type
         if model_type != 'multimodal' and mode == 'total':
-            # 对于非多模态模型，默认只使用cox损失
+            # For non-multimodal models, default to using only the Cox loss
             mode = 'only_cox'
-            print(f"注意: 对于 {model_type} 模型，自动将模式设置为 'only_cox'")
+            print(f"Notice: For {model_type} model, mode was automatically set to 'only_cox'")
 
         super().__init__(modalities, m_length, dataloaders, model_type, fusion_method, device, **model_kwargs)
 
@@ -148,9 +148,9 @@ class Model(_BaseModelWithDataLoader):
         self.model = self.model.to(self.device)
 
     def predict(self, data, data_label):
-        # 对于单模态模型，确保只传递临床数据
+        # For single-modality models, ensure only clinical data is passed
         if self.model_type != 'multimodal':
-            # 只保留临床数据
+            # Keep only clinical data
             clinical_data = {}
             if 'clinical_categorical' in data:
                 clinical_data['clinical_categorical'] = data['clinical_categorical']
@@ -169,10 +169,9 @@ class Model(_BaseModelWithDataLoader):
         return count
 
 
-# 为了方便使用，创建专门的模型类
+# Convenience classes for specific model types
 class MultimodalModel(Model):
-    """多模态模型 - 使用所有可用模态"""
-
+    """Multimodal model - uses all available modalities"""
     def __init__(self, modalities, m_length, dataloaders, fusion_method='attention',
                  trade_off=0.3, mode='total', device=None, **model_kwargs):
         super().__init__(modalities, m_length, dataloaders, 'multimodal',
@@ -180,22 +179,20 @@ class MultimodalModel(Model):
 
 
 class DeepSurvModel(Model):
-    """DeepSurv 模型 - 只使用临床数据"""
-
+    """DeepSurv model - uses only clinical data"""
     def __init__(self, m_length, dataloaders, hidden_dims=[64, 32], dropout_rate=0.3,
                  trade_off=0.3, mode='only_cox', device=None, **model_kwargs):
-        modalities = ['clinical']  # 只使用临床数据
+        modalities = ['clinical']  # only clinical data
         super().__init__(modalities, m_length, dataloaders, 'deepsurv',
                          'none', trade_off, mode, device,
                          hidden_dims=hidden_dims, dropout_rate=dropout_rate, **model_kwargs)
 
 
 class CoxTimeModel(Model):
-    """CoxTime 模型 - 只使用临床数据"""
-
+    """CoxTime model - uses only clinical data"""
     def __init__(self, m_length, dataloaders, time_bins=10, hidden_dims=[64, 32],
                  dropout_rate=0.3, trade_off=0.3, mode='only_cox', device=None, **model_kwargs):
-        modalities = ['clinical']  # 只使用临床数据
+        modalities = ['clinical']  # only clinical data
         super().__init__(modalities, m_length, dataloaders, 'coxtime',
                          'none', trade_off, mode, device,
                          time_bins=time_bins, hidden_dims=hidden_dims,
@@ -203,11 +200,10 @@ class CoxTimeModel(Model):
 
 
 class NMTLRModel(Model):
-    """N-MTLR 模型 - 只使用临床数据"""
-
+    """N-MTLR model - uses only clinical data"""
     def __init__(self, m_length, dataloaders, time_bins=10, hidden_dims=[64, 32],
                  dropout_rate=0.3, trade_off=0.3, mode='only_cox', device=None, **model_kwargs):
-        modalities = ['clinical']  # 只使用临床数据
+        modalities = ['clinical']  # only clinical data
         super().__init__(modalities, m_length, dataloaders, 'nmtlr',
                          'none', trade_off, mode, device,
                          time_bins=time_bins, hidden_dims=hidden_dims,
@@ -215,11 +211,10 @@ class NMTLRModel(Model):
 
 
 class DeepCoxMixturesModel(Model):
-    """Deep Cox Mixtures 模型 - 只使用临床数据"""
-
+    """Deep Cox Mixtures model - uses only clinical data"""
     def __init__(self, m_length, dataloaders, n_components=3, hidden_dims=[64, 32],
                  dropout_rate=0.3, trade_off=0.3, mode='only_cox', device=None, **model_kwargs):
-        modalities = ['clinical']  # 只使用临床数据
+        modalities = ['clinical']  # only clinical data
         super().__init__(modalities, m_length, dataloaders, 'deepcoxmixtures',
                          'none', trade_off, mode, device,
                          n_components=n_components, hidden_dims=hidden_dims,

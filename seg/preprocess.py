@@ -3,19 +3,23 @@ import numpy as np
 import nibabel as nib
 import torch
 import random
+# 2D preprocessing classes and augmentation utilities (comments translated to English)
 
+import numpy as np
+import random
+import torch
 
-# 2D预处理类
+# 2D Random Crop
 class RandomCrop2D(object):
     def __init__(self, output_size):
         self.output_size = output_size
 
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
-        if len(image.shape) == 4:  # 如果形状是 (4, 240, 240, 1)
-            image = image.squeeze(axis=3)  # 去掉最后的1维度，变成 (4, 240, 240)
-        if len(label.shape) == 4:  # 如果形状是 (4, 240, 240, 1)
-            image = image.squeeze(axis=3)  # 去掉最后的1维度，变成 (4, 240, 240)
+        if len(image.shape) == 4:  # if shape is (4, 240, 240, 1)
+            image = image.squeeze(axis=3)  # remove the last singleton dimension -> (4, 240, 240)
+        if len(label.shape) == 4:  # if shape is (4, 240, 240, 1)
+            label = label.squeeze(axis=3)  # remove the last singleton dimension -> (4, 240, 240)
 
         c, h, w = image.shape
 
@@ -28,16 +32,17 @@ class RandomCrop2D(object):
         return {'image': image, 'label': label}
 
 
+# 2D Center Crop
 class CenterCrop2D(object):
     def __init__(self, output_size):
         self.output_size = output_size
 
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
-        if len(image.shape) == 4:  # 如果形状是 (4, 240, 240, 1)
-            image = image.squeeze(axis=3)  # 去掉最后的1维度，变成 (4, 240, 240)
-        if len(label.shape) == 4:  # 如果形状是 (4, 240, 240, 1)
-            image = image.squeeze(axis=3)  # 去掉最后的1维度，变成 (4, 240, 240)
+        if len(image.shape) == 4:  # if shape is (4, 240, 240, 1)
+            image = image.squeeze(axis=3)  # remove the last singleton dimension -> (4, 240, 240)
+        if len(label.shape) == 4:  # if shape is (4, 240, 240, 1)
+            label = label.squeeze(axis=3)  # remove the last singleton dimension -> (4, 240, 240)
         c, h, w = image.shape
 
         top = (h - self.output_size[0]) // 2
@@ -49,31 +54,32 @@ class CenterCrop2D(object):
         return {'image': image, 'label': label}
 
 
-# 修改 RandomRotFlip2D 类
+# Modified Random rotation + flip 2D class
 class RandomRotFlip2D(object):
     def __call__(self, sample):
         image, label = sample['image'], sample['label']
-        if len(image.shape) == 4:  # 如果形状是 (4, 240, 240, 1)
-            image = image.squeeze(axis=3)  # 去掉最后的1维度，变成 (4, 240, 240)
-        if len(label.shape) == 4:  # 如果形状是 (4, 240, 240, 1)
-            image = image.squeeze(axis=3)  # 去掉最后的1维度，变成 (4, 240, 240)
-        # 随机旋转 (0, 90, 180, 270度)
+        if len(image.shape) == 4:  # if shape is (4, 240, 240, 1)
+            image = image.squeeze(axis=3)  # remove the last singleton dimension -> (4, 240, 240)
+        if len(label.shape) == 4:  # if shape is (4, 240, 240, 1)
+            label = label.squeeze(axis=3)  # remove the last singleton dimension -> (4, 240, 240)
+        # Random rotation (0, 90, 180, 270 degrees)
         k = np.random.randint(0, 4)
         image = np.stack([np.rot90(channel, k) for channel in image], axis=0)
         label = np.rot90(label, k)
 
-        # 随机翻转 (水平或垂直)
+        # Random flip (horizontal or vertical)
         flip_type = np.random.choice(['none', 'h', 'v'], p=[0.5, 0.25, 0.25])
         if flip_type == 'h':
-            image = np.flip(image, axis=2).copy()  # 使用.copy()确保连续性
-            label = np.flip(label, axis=1).copy()  # 使用.copy()确保连续性
+            image = np.flip(image, axis=2).copy()  # use .copy() to ensure memory contiguity
+            label = np.flip(label, axis=1).copy()  # use .copy() to ensure memory contiguity
         elif flip_type == 'v':
-            image = np.flip(image, axis=1).copy()  # 使用.copy()确保连续性
-            label = np.flip(label, axis=0).copy()  # 使用.copy()确保连续性
+            image = np.flip(image, axis=1).copy()  # use .copy() to ensure memory contiguity
+            label = np.flip(label, axis=0).copy()  # use .copy() to ensure memory contiguity
 
         return {'image': image, 'label': label}
 
 
+# Gaussian noise augmentation helper
 def augment_gaussian_noise(data_sample, noise_variance=(0, 0.1)):
     if noise_variance[0] == noise_variance[1]:
         variance = noise_variance[0]
@@ -83,6 +89,7 @@ def augment_gaussian_noise(data_sample, noise_variance=(0, 0.1)):
     return data_sample
 
 
+# Gaussian noise transform
 class GaussianNoise(object):
     def __init__(self, noise_variance=(0, 0.1), p=0.5):
         self.prob = p
@@ -96,6 +103,7 @@ class GaussianNoise(object):
         return {'image': image, 'label': label}
 
 
+# Contrast augmentation helper
 def augment_contrast(data_sample, contrast_range=(0.75, 1.25), preserve_range=True, per_channel=True):
     if not per_channel:
         mn = data_sample.mean()
@@ -127,6 +135,7 @@ def augment_contrast(data_sample, contrast_range=(0.75, 1.25), preserve_range=Tr
     return data_sample
 
 
+# Contrast augmentation transform
 class ContrastAugmentationTransform(object):
     def __init__(self, contrast_range=(0.75, 1.25), preserve_range=True, per_channel=True, p_per_sample=1.):
         self.p_per_sample = p_per_sample
@@ -143,6 +152,7 @@ class ContrastAugmentationTransform(object):
         return {'image': image, 'label': label}
 
 
+# Brightness additive augmentation helper
 def augment_brightness_additive(data_sample, mu: float, sigma: float, per_channel: bool = True,
                                 p_per_channel: float = 1.):
     if not per_channel:
@@ -158,6 +168,7 @@ def augment_brightness_additive(data_sample, mu: float, sigma: float, per_channe
     return data_sample
 
 
+# Brightness transform
 class BrightnessTransform(object):
     def __init__(self, mu, sigma, per_channel=True, p_per_sample=1., p_per_channel=1.):
         self.p_per_sample = p_per_sample
@@ -174,13 +185,13 @@ class BrightnessTransform(object):
         return {'image': image, 'label': label}
 
 
-# 修改 ToTensorDict 类
+# Modified ToTensorDict class
 class ToTensorDict(object):
     def __call__(self, sample):
         image = sample['image']
         label = sample['label']
 
-        # 确保数组是连续的
+        # Ensure arrays are contiguous
         if not image.flags.contiguous:
             image = np.ascontiguousarray(image)
         if not label.flags.contiguous:
@@ -191,9 +202,9 @@ class ToTensorDict(object):
         return {'image': image, 'label': label}
 
 
-# 在预处理流程中添加强制连续性
+# Add EnsureContiguous to preprocessing pipeline
 class EnsureContiguous(object):
-    """确保数组在内存中是连续的"""
+    """Ensure arrays are contiguous in memory"""
 
     def __call__(self, sample):
         image, label = sample['image'], sample['label']

@@ -1,11 +1,4 @@
-""" Loss.py"""
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from itertools import accumulate
-from random import shuffle
-
-""" Loss.py"""
+""" Loss.py """
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,17 +7,17 @@ from random import shuffle
 
 
 class Loss(nn.Module):
-    """损失函数类，支持多种生存分析模型"""
+    """Loss class supporting multiple survival analysis models."""
 
     def __init__(self, trade_off=0.3, mode='total', model_type='multimodal'):
         """
         Parameters
         ----------
         trade_off: float (Default:0.3)
-            To balance the unsupervised loss and cox loss.
+            Balances the unsupervised loss and the Cox loss.
 
         mode: str (Default:'total')
-            To determine which loss is used.
+            Determines which loss is used.
 
         model_type: str (Default:'multimodal')
             Type of model: 'multimodal', 'deepsurv', 'coxtime', 'nmtlr', 'deepcoxmixtures'
@@ -35,7 +28,7 @@ class Loss(nn.Module):
         self.model_type = model_type
 
     def _negative_log_likelihood_loss(self, pred_hazard, event, time):
-        """Cox比例风险模型的负对数似然损失"""
+        """Negative log-likelihood loss for the Cox proportional hazards model."""
         risk = pred_hazard['hazard']
         _, idx = torch.sort(time, descending=True)
         event = event[idx]
@@ -52,6 +45,10 @@ class Loss(nn.Module):
         return neg_likelihood
 
     def _random_match(self, batch_size):
+        """
+        Create two random index lists for contrastive pairing.
+        Half of the batch is assigned to x1, the rest to x2. If sizes differ by one, duplicate one item.
+        """
         idx = list(range(batch_size))
         split_size = int(batch_size * 0.5)
         shuffle(idx)
@@ -63,10 +60,10 @@ class Loss(nn.Module):
 
     def _contrastive_loss1(self, x1_idx, x2_idx, representation, modalities, margin=0.2):
         """
-        Only one modality
+        Contrastive loss for the single-modality case.
         """
         con_loss = 0
-        # 只使用实际存在的模态
+        # Use only modalities that actually exist in the representation dict
         available_modalities = [m for m in modalities if m in representation]
         if not available_modalities:
             return torch.tensor(0.0, device=next(iter(representation.values())).device)
@@ -80,8 +77,12 @@ class Loss(nn.Module):
         return con_loss / len(x1_idx)
 
     def _contrastive_loss2(self, x1_idx, x2_idx, representation, modalities, margin=0.2, alpha=0.5, beta=0.5):
+        """
+        Contrastive loss for the multi-modality case.
+        Uses cross-modal similarities and in-modality similarities to construct a margin-based loss.
+        """
         con_loss = 0
-        # 只使用实际存在的模态
+        # Use only modalities that actually exist in the representation dict
         available_modalities = [m for m in modalities if m in representation]
         if len(available_modalities) < 2:
             return self._contrastive_loss1(x1_idx, x2_idx, representation, available_modalities, margin)
@@ -100,17 +101,21 @@ class Loss(nn.Module):
             for modality in available_modalities:
                 dis_x_y += F.cosine_similarity(representation[modality][idx1], representation[modality][idx2], dim=0)
 
-            # Calculate loss using a smooth approximation of max(0, ...)
+            # Compute loss using a smooth approximation of max(0, ...)
             loss_term = margin + dis_x_y - alpha * dis_x_x - beta * dis_y_y
             con_loss += torch.log(1 + torch.exp(loss_term))
 
         return con_loss / len(x1_idx)
 
     def _unsupervised_similarity_loss(self, representation, modalities, t=1):
+        """
+        Compute unsupervised similarity loss using contrastive pairings.
+        t controls how many random matchings are averaged.
+        """
         k = 0
         similarity_loss = 0
 
-        # 检查representation中实际存在的模态
+        # Check which modalities actually exist in the representation dict
         available_modalities = [m for m in modalities if m in representation]
 
         if not available_modalities:
@@ -130,23 +135,24 @@ class Loss(nn.Module):
         return similarity_loss / t
 
     def _cross_entropy_loss(self, pred_hazard, event):
+        """Compute negative log-likelihood (cross-entropy style) for discrete-score predictions."""
         return F.nll_loss(pred_hazard['score'], event)
 
     def forward(self, representation, modalities, pred_hazard, event, time):
         """
-        When mode = 'total' we use the proposed loss function,
-        mode = 'only_cox' we remove the unsupervised loss.
+        When mode == 'total' use the proposed combined loss.
+        When mode == 'only_cox' only use the Cox negative log-likelihood.
         """
         if self.mode == 'total':
-            # 检查是否有多模态数据来计算对比损失
+            # Check for multimodal data to decide whether to include contrastive loss
             available_modalities = [m for m in modalities if m in representation]
             if len(available_modalities) > 1:
-                # 有多模态数据，使用完整损失
+                # Multimodal data present: use full loss
                 loss = (self._cross_entropy_loss(pred_hazard, event) +
                         self._negative_log_likelihood_loss(pred_hazard, event, time) +
                         self.trade_off * self._unsupervised_similarity_loss(representation, modalities))
             else:
-                # 只有单模态数据，不使用对比损失
+                # Single-modality only: do not use contrastive loss
                 loss = (self._cross_entropy_loss(pred_hazard, event) +
                         self._negative_log_likelihood_loss(pred_hazard, event, time))
         elif self.mode == 'only_cox':
@@ -154,34 +160,40 @@ class Loss(nn.Module):
 
         return loss
 
-# 为不同类型的模型创建专门的损失类
+
+# Create specialized loss classes for different model types
 class MultimodalLoss(Loss):
-    """多模态模型的损失函数"""
+    """Loss for multimodal models."""
     def __init__(self, trade_off=0.3, mode='total'):
         super().__init__(trade_off=trade_off, mode=mode, model_type='multimodal')
 
+
 class DeepSurvLoss(Loss):
-    """DeepSurv模型的损失函数"""
+    """Loss for DeepSurv models."""
     def __init__(self):
         super().__init__(model_type='deepsurv')
 
+
 class CoxTimeLoss(Loss):
-    """CoxTime模型的损失函数"""
+    """Loss for CoxTime models."""
     def __init__(self):
         super().__init__(model_type='coxtime')
 
+
 class NMTLRLoss(Loss):
-    """N-MTLR模型的损失函数"""
+    """Loss for N-MTLR models."""
     def __init__(self, time_bins=None):
         super().__init__(model_type='nmtlr')
         self.time_bins = time_bins
 
     def forward(self, representation, modalities, pred_hazard, event, time):
+        # Forward kept compatible with parent; time_bins available on the instance if needed.
         return super().forward(representation, modalities, pred_hazard, event, time,
                               time_bins=self.time_bins)
 
+
 class DeepCoxMixturesLoss(Loss):
-    """Deep Cox Mixtures模型的损失函数"""
+    """Loss for Deep Cox Mixtures models."""
     def __init__(self):
         super().__init__(model_type='deepcoxmixtures')
 
@@ -189,9 +201,6 @@ class DeepCoxMixturesLoss(Loss):
                 weights=None, component_hazards=None):
         return super().forward(representation, modalities, pred_hazard, event, time,
                               weights=weights, component_hazards=component_hazards)
-
-
-
 
 
 

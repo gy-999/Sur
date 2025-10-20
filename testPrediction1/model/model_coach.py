@@ -1,8 +1,9 @@
-""" model_coach.py"""
+""" model_coach.py """
 import copy
 import torch
 from lifelines.utils import concordance_index
 from torch.utils.tensorboard import SummaryWriter
+
 
 class ModelCoach:
     def __init__(self, model, modalities, dataloaders, optimizer, criterion, device=None, model_type='multimodal'):
@@ -14,7 +15,7 @@ class ModelCoach:
         self.device = device
         self.model_type = model_type
 
-        # 初始化最佳性能记录
+        # Initialize best-performance records
         self.best_perf = {'best_score': 0.0}
         self.best_wts = {'best_wts': None}
         self.current_perf = {'epoch a': 0}
@@ -25,9 +26,9 @@ class ModelCoach:
         return data
 
     def _compute_loss(self, representation, modalities, pred_hazard, event, time, **kwargs):
-        """计算损失，根据模型类型传递额外参数"""
+        """Compute loss; pass extra arguments depending on model type."""
         if self.model_type == 'nmtlr':
-            # 对于N-MTLR，传递时间分箱信息
+            # For N-MTLR, pass time bin information
             time_bins = getattr(self.model, 'time_bins', None)
             return self.criterion(
                 representation=representation,
@@ -38,7 +39,7 @@ class ModelCoach:
                 time_bins=time_bins
             )
         elif self.model_type == 'deepcoxmixtures':
-            # 对于Deep Cox Mixtures，传递权重和组件风险
+            # For Deep Cox Mixtures, pass weights and component hazards
             weights = kwargs.get('weights', None)
             component_hazards = kwargs.get('component_hazards', None)
             return self.criterion(
@@ -51,7 +52,7 @@ class ModelCoach:
                 component_hazards=component_hazards
             )
         else:
-            # 对于其他模型，使用标准调用
+            # Standard call for other models
             return self.criterion(
                 representation=representation,
                 modalities=modalities,
@@ -71,16 +72,16 @@ class ModelCoach:
 
     def _process_data_batch(self, data, data_label, phase):
         """
-        Train model using a batch.
+        Process a single batch (train or val).
         """
         data = self._data2device(data)
         event = data_label['label'][:, 0].to(self.device)
         time = data_label['label'][:, 1].to(self.device)
 
         with torch.set_grad_enabled(phase == 'train'):
-            # 根据模型类型获取不同的输出
+            # Get different outputs depending on the model type
             if self.model_type == 'deepcoxmixtures':
-                # Deep Cox Mixtures 可能需要额外的输出
+                # Deep Cox Mixtures may return extra outputs
                 model_output = self.model(data)
                 if len(model_output) == 3:
                     hazard, representation, extra_outputs = model_output
@@ -95,13 +96,11 @@ class ModelCoach:
                     weights=weights, component_hazards=component_hazards
                 )
             else:
-                # 其他模型的标准输出
+                # Standard outputs for other models
                 hazard, representation = self.model(data)
 
-                if self.model_type == 'nmtlr':
-                    loss = self._compute_loss(representation, self.modalities, hazard, event, time)
-                else:
-                    loss = self._compute_loss(representation, self.modalities, hazard, event, time)
+                # For NMTLR the loss call is handled inside _compute_loss; for other models the same
+                loss = self._compute_loss(representation, self.modalities, hazard, event, time)
 
             if phase == 'train':
                 self.optimizer.zero_grad()
@@ -189,7 +188,7 @@ class ModelCoach:
                     self.current_perf['epoch' + str(epoch)] = self.current_perf.pop(k)
                     self.current_perf['epoch' + str(epoch)] = epoch_c_index
 
-                    # Record top best model
+                    # Record the best model so far
                     if epoch_c_index > self.best_perf['best_score']:
                         self.best_perf['best_score'] = epoch_c_index
                         self.best_wts['best_wts'] = copy.deepcopy(self.model.state_dict())
@@ -201,36 +200,35 @@ class ModelCoach:
             print(f'     {v} ({k})')
 
 
-# 为不同类型的模型创建专门的教练类
+# Specialized coach classes for different model types
 class MultimodalModelCoach(ModelCoach):
-    """多模态模型的教练"""
+    """Coach for multimodal models"""
     def __init__(self, model, modalities, dataloaders, optimizer, criterion, device=None):
         super().__init__(model, modalities, dataloaders, optimizer, criterion, device, 'multimodal')
 
+
 class DeepSurvModelCoach(ModelCoach):
-    """DeepSurv模型的教练"""
+    """Coach for DeepSurv models"""
     def __init__(self, model, modalities, dataloaders, optimizer, criterion, device=None):
         super().__init__(model, modalities, dataloaders, optimizer, criterion, device, 'deepsurv')
 
+
 class CoxTimeModelCoach(ModelCoach):
-    """CoxTime模型的教练"""
+    """Coach for CoxTime models"""
     def __init__(self, model, modalities, dataloaders, optimizer, criterion, device=None):
         super().__init__(model, modalities, dataloaders, optimizer, criterion, device, 'coxtime')
 
+
 class NMTLRModelCoach(ModelCoach):
-    """N-MTLR模型的教练"""
+    """Coach for N-MTLR models"""
     def __init__(self, model, modalities, dataloaders, optimizer, criterion, device=None):
         super().__init__(model, modalities, dataloaders, optimizer, criterion, device, 'nmtlr')
 
+
 class DeepCoxMixturesModelCoach(ModelCoach):
-    """Deep Cox Mixtures模型的教练"""
+    """Coach for Deep Cox Mixtures models"""
     def __init__(self, model, modalities, dataloaders, optimizer, criterion, device=None):
         super().__init__(model, modalities, dataloaders, optimizer, criterion, device, 'deepcoxmixtures')
-
-
-
-
-
 
 
 
